@@ -1,9 +1,7 @@
-
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { Language } from '../types';
 
-// FIX: Add TypeScript definitions for the Web Speech API.
-// This is necessary because these types are not standard in all TypeScript DOM library versions.
+// TypeScript definitions for the Web Speech API.
 interface SpeechRecognition extends EventTarget {
   continuous: boolean;
   lang: string;
@@ -59,82 +57,96 @@ interface SpeechRecognitionHookProps {
   lang: Language;
 }
 
-// Check for SpeechRecognition API
-// FIX: Rename variable to avoid conflict with the 'SpeechRecognition' interface type.
 const SpeechRecognitionAPI = window.SpeechRecognition || window.webkitSpeechRecognition;
 const isSupported = !!SpeechRecognitionAPI;
 
 export const useSpeechRecognition = ({ phrases, onMatch, lang }: SpeechRecognitionHookProps) => {
   const [isListening, setIsListening] = useState(false);
-  // FIX: 'SpeechRecognition' now correctly refers to the interface type, resolving the type error.
   const recognitionRef = useRef<SpeechRecognition | null>(null);
-  // Ref to hold the intended listening state to prevent race conditions with async browser APIs.
-  const intendedListeningRef = useRef(false);
+  
+  // Using refs to hold the latest callbacks and data without re-triggering the main effect.
+  const onMatchRef = useRef(onMatch);
+  useEffect(() => { onMatchRef.current = onMatch; }, [onMatch]);
+  
+  const phrasesRef = useRef(phrases);
+  useEffect(() => { phrasesRef.current = phrases; }, [phrases]);
+  
+  // This ref tracks if the user explicitly called stop, to differentiate from an auto-stop by the browser.
+  const userStoppedRef = useRef(false);
+
+  const startListening = useCallback(() => {
+    if (isListening || !isSupported) return;
+    userStoppedRef.current = false;
+    setIsListening(true);
+  }, [isListening]);
 
   const stopListening = useCallback(() => {
+    userStoppedRef.current = true;
     if (recognitionRef.current) {
-      intendedListeningRef.current = false;
       recognitionRef.current.stop();
     }
+    setIsListening(false);
   }, []);
-  
-  const startListening = useCallback(() => {
-    if (intendedListeningRef.current || !isSupported) return;
+
+  useEffect(() => {
+    if (!isListening) {
+      if (recognitionRef.current) {
+        recognitionRef.current.stop();
+        recognitionRef.current = null;
+      }
+      return;
+    }
 
     const recognition = new SpeechRecognitionAPI();
     recognitionRef.current = recognition;
-    intendedListeningRef.current = true;
     
     recognition.lang = lang;
     recognition.continuous = true;
     recognition.interimResults = false;
 
-    recognition.onstart = () => {
-      setIsListening(true);
-    };
-
     recognition.onend = () => {
-      // If the stop was not intentional (i.e., user didn't click Stop), 
-      // restart the recognition service to ensure continuous listening.
-      if (intendedListeningRef.current) {
+      // If the stop was not initiated by the user, and we are still in a listening state,
+      // then we should restart. This robustly handles browser auto-stops.
+      if (!userStoppedRef.current && isListening) {
         recognition.start();
       } else {
-        setIsListening(false);
         recognitionRef.current = null;
+        setIsListening(false); // Sync state just in case
       }
     };
     
     recognition.onerror = (event: SpeechRecognitionError) => {
       console.error('Speech recognition error:', event.error);
-      // On a critical error like 'not-allowed', stop trying to listen.
       if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
-        intendedListeningRef.current = false;
+        userStoppedRef.current = true;
+        setIsListening(false);
       }
+      // For other errors, `onend` will fire, and our logic there will attempt a restart if appropriate.
     };
 
     recognition.onresult = (event: SpeechRecognitionEvent) => {
       const transcript = event.results[event.results.length - 1][0].transcript.trim().toLowerCase();
       
-      const matchedPhrase = phrases.find(phrase => transcript.includes(phrase.toLowerCase()));
+      const currentPhrases = phrasesRef.current;
+      const matchedPhrase = currentPhrases.find(phrase => transcript.includes(phrase.toLowerCase()));
 
       if (matchedPhrase) {
-        onMatch(matchedPhrase);
+        onMatchRef.current(matchedPhrase);
       }
     };
-
+    
     recognition.start();
-  }, [phrases, onMatch, lang]);
-  
-  // Cleanup on unmount
-  useEffect(() => {
+
+    // Cleanup function for this effect
     return () => {
-      intendedListeningRef.current = false;
       if (recognitionRef.current) {
+        // Prevent onend from firing during a cleanup-related stop
+        recognitionRef.current.onend = null; 
         recognitionRef.current.stop();
         recognitionRef.current = null;
       }
     };
-  }, []);
+  }, [isListening, lang]);
   
   return {
     isListening,
