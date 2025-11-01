@@ -5,12 +5,24 @@ import CounterDisplay from './components/CounterDisplay';
 import ControlButton from './components/ControlButton';
 import { PHRASES_STORAGE_KEY, SUPPORTED_LANGUAGES, DEFAULT_PHRASES } from './constants';
 import { Language, Phrase } from './types';
+import { isChrome } from './utils';
+
+const BrowserWarning: React.FC = () => (
+  <div className="bg-yellow-500 text-black p-3 text-center text-sm font-semibold w-full sticky top-0 z-10">
+    <p>For the best experience with continuous listening, we strongly recommend using the Google Chrome browser.</p>
+  </div>
+);
 
 const App: React.FC = () => {
   const [count, setCount] = useState<number>(0);
   const [phrases, setPhrases] = useState<Phrase[]>([]);
   const [showMaintenance, setShowMaintenance] = useState<boolean>(false);
   const [language, setLanguage] = useState<Language>('ar-SA');
+  const [isBrowserChrome, setIsBrowserChrome] = useState(true);
+
+  useEffect(() => {
+    setIsBrowserChrome(isChrome());
+  }, []);
   
   // Load phrases from localStorage on initial render, or set defaults
   useEffect(() => {
@@ -94,43 +106,46 @@ const App: React.FC = () => {
   }
 
   return (
-    <div className="min-h-screen w-full flex flex-col items-center justify-between p-4 md:p-8 bg-primary">
-      <header className="w-full max-w-4xl flex justify-between items-center">
-        <h1 className="text-2xl md:text-3xl font-bold text-highlight">Dhikr Counter</h1>
-        <ControlButton onClick={() => setShowMaintenance(!showMaintenance)} variant="secondary">
-          <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
-        </ControlButton>
-      </header>
-
-      <main className="flex-grow flex flex-col items-center justify-center w-full max-w-4xl text-center">
-        <CounterDisplay count={count} isListening={isListening} />
-        <div className="mt-8 flex flex-col sm:flex-row items-center space-y-4 sm:space-y-0 sm:space-x-4 w-full justify-center">
-          <ControlButton onClick={toggleListening} variant={isListening ? 'danger' : 'primary'} className="w-full sm:w-48">
-            {isListening ? 'Stop' : 'Start'}
+    <div className="min-h-screen w-full flex flex-col items-center bg-primary">
+      {!isBrowserChrome && <BrowserWarning />}
+      <div className="flex-grow flex flex-col w-full items-center justify-between p-4 md:p-8">
+        <header className="w-full max-w-4xl flex justify-between items-center">
+          <h1 className="text-2xl md:text-3xl font-bold text-highlight">Dhikr Counter</h1>
+          <ControlButton onClick={() => setShowMaintenance(!showMaintenance)} variant="secondary">
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
           </ControlButton>
-          <ControlButton onClick={handleReset} variant="secondary" className="w-full sm:w-48">
-            Reset
-          </ControlButton>
-        </div>
-      </main>
+        </header>
 
-      <footer className="w-full max-w-4xl">
-        <div className="w-full flex justify-center mt-8">
-            <select
-                value={language}
-                onChange={(e) => setLanguage(e.target.value as Language)}
-                className="bg-secondary border border-accent text-text-main text-sm rounded-lg focus:ring-highlight focus:border-highlight block w-full max-w-xs p-2.5"
-                disabled={isListening}
-            >
-                {SUPPORTED_LANGUAGES.map(lang => (
-                    <option key={lang.code} value={lang.code}>{lang.name}</option>
-                ))}
-            </select>
-        </div>
-        <p className="text-center text-text-dim text-xs mt-4">
-            For best results, keep this page open and your screen on.
-        </p>
-      </footer>
+        <main className="flex-grow flex flex-col items-center justify-center w-full max-w-4xl text-center">
+          <CounterDisplay count={count} isListening={isListening} />
+          <div className="mt-8 flex flex-col sm:flex-row items-center space-y-4 sm:space-y-0 sm:space-x-4 w-full justify-center">
+            <ControlButton onClick={toggleListening} variant={isListening ? 'danger' : 'primary'} className="w-full sm:w-48">
+              {isListening ? 'Stop' : 'Start'}
+            </ControlButton>
+            <ControlButton onClick={handleReset} variant="secondary" className="w-full sm:w-48">
+              Reset
+            </ControlButton>
+          </div>
+        </main>
+
+        <footer className="w-full max-w-4xl">
+          <div className="w-full flex justify-center mt-8">
+              <select
+                  value={language}
+                  onChange={(e) => setLanguage(e.target.value as Language)}
+                  className="bg-secondary border border-accent text-text-main text-sm rounded-lg focus:ring-highlight focus:border-highlight block w-full max-w-xs p-2.5"
+                  disabled={isListening}
+              >
+                  {SUPPORTED_LANGUAGES.map(lang => (
+                      <option key={lang.code} value={lang.code}>{lang.name}</option>
+                  ))}
+              </select>
+          </div>
+          <p className="text-center text-text-dim text-xs mt-4">
+              For best results, keep this page open and your screen on.
+          </p>
+        </footer>
+      </div>
 
       <MaintenancePanel 
         isOpen={showMaintenance}

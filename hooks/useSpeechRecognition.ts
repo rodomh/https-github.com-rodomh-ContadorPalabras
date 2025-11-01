@@ -64,14 +64,12 @@ export const useSpeechRecognition = ({ phrases, onMatch, lang }: SpeechRecogniti
   const [isListening, setIsListening] = useState(false);
   const recognitionRef = useRef<SpeechRecognition | null>(null);
   
-  // Using refs to hold the latest callbacks and data without re-triggering the main effect.
   const onMatchRef = useRef(onMatch);
   useEffect(() => { onMatchRef.current = onMatch; }, [onMatch]);
   
   const phrasesRef = useRef(phrases);
   useEffect(() => { phrasesRef.current = phrases; }, [phrases]);
   
-  // This ref tracks if the user explicitly called stop, to differentiate from an auto-stop by the browser.
   const userStoppedRef = useRef(false);
 
   const startListening = useCallback(() => {
@@ -83,6 +81,8 @@ export const useSpeechRecognition = ({ phrases, onMatch, lang }: SpeechRecogniti
   const stopListening = useCallback(() => {
     userStoppedRef.current = true;
     if (recognitionRef.current) {
+      // Detach onend handler before stopping to prevent it from trying to restart.
+      recognitionRef.current.onend = null;
       recognitionRef.current.stop();
     }
     setIsListening(false);
@@ -91,58 +91,72 @@ export const useSpeechRecognition = ({ phrases, onMatch, lang }: SpeechRecogniti
   useEffect(() => {
     if (!isListening) {
       if (recognitionRef.current) {
+        recognitionRef.current.onend = null;
         recognitionRef.current.stop();
         recognitionRef.current = null;
       }
       return;
     }
 
-    const recognition = new SpeechRecognitionAPI();
-    recognitionRef.current = recognition;
-    
-    recognition.lang = lang;
-    recognition.continuous = true;
-    recognition.interimResults = false;
+    let localRecognition: SpeechRecognition | null = null;
+    let isActive = true;
 
-    recognition.onend = () => {
-      // If the stop was not initiated by the user, and we are still in a listening state,
-      // then we should restart. This robustly handles browser auto-stops.
-      if (!userStoppedRef.current && isListening) {
-        recognition.start();
-      } else {
-        recognitionRef.current = null;
-        setIsListening(false); // Sync state just in case
-      }
-    };
-    
-    recognition.onerror = (event: SpeechRecognitionError) => {
-      console.error('Speech recognition error:', event.error);
-      if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
-        userStoppedRef.current = true;
-        setIsListening(false);
-      }
-      // For other errors, `onend` will fire, and our logic there will attempt a restart if appropriate.
-    };
+    const start = () => {
+      // Guard against starting if the effect is no longer active or if user stopped.
+      if (!isActive || userStoppedRef.current) return;
 
-    recognition.onresult = (event: SpeechRecognitionEvent) => {
-      const transcript = event.results[event.results.length - 1][0].transcript.trim().toLowerCase();
+      const recognition = new SpeechRecognitionAPI();
+      recognitionRef.current = recognition;
+      localRecognition = recognition;
       
-      const currentPhrases = phrasesRef.current;
-      const matchedPhrase = currentPhrases.find(phrase => transcript.includes(phrase.toLowerCase()));
+      recognition.lang = lang;
+      recognition.continuous = true;
+      recognition.interimResults = false;
 
-      if (matchedPhrase) {
-        onMatchRef.current(matchedPhrase);
-      }
+      recognition.onend = () => {
+        // If the stop was not initiated by the user, and we are still in a listening state,
+        // we create a new instance and start again. This is more robust than reusing the old one.
+        if (isActive && !userStoppedRef.current && isListening) {
+          console.log('Recognition ended unexpectedly, restarting...');
+          start();
+        } else {
+          recognitionRef.current = null;
+          // Only set listening to false if it was a deliberate stop or error.
+          if(userStoppedRef.current) setIsListening(false);
+        }
+      };
+      
+      recognition.onerror = (event: SpeechRecognitionError) => {
+        console.error('Speech recognition error:', event.error);
+        if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
+          userStoppedRef.current = true;
+          setIsListening(false);
+        }
+        // 'onend' will fire after most errors, letting our logic handle the restart.
+      };
+
+      recognition.onresult = (event: SpeechRecognitionEvent) => {
+        const transcript = event.results[event.results.length - 1][0].transcript.trim().toLowerCase();
+        
+        const currentPhrases = phrasesRef.current;
+        const matchedPhrase = currentPhrases.find(phrase => transcript.includes(phrase.toLowerCase()));
+
+        if (matchedPhrase) {
+          onMatchRef.current(matchedPhrase);
+        }
+      };
+      
+      recognition.start();
     };
     
-    recognition.start();
+    start();
 
     // Cleanup function for this effect
     return () => {
-      if (recognitionRef.current) {
-        // Prevent onend from firing during a cleanup-related stop
-        recognitionRef.current.onend = null; 
-        recognitionRef.current.stop();
+      isActive = false;
+      if (localRecognition) {
+        localRecognition.onend = null; 
+        localRecognition.stop();
         recognitionRef.current = null;
       }
     };
