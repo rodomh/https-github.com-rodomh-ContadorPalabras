@@ -1,0 +1,7 @@
+{
+  "name": "Voice Phrase Counter",
+  "description": "A real-time spoken phrase counter to assist in dhikr practices or other verbal repetitions. Users can manage a list of phrases to be detected and counted using their device's microphone.",
+  "requestFramePermissions": [
+    "microphone"
+  ]
+}
