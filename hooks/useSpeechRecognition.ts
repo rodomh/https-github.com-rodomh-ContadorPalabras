@@ -1,3 +1,4 @@
+
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { Language } from '../types';
 
@@ -67,17 +68,23 @@ export const useSpeechRecognition = ({ phrases, onMatch, lang }: SpeechRecogniti
   const [isListening, setIsListening] = useState(false);
   // FIX: 'SpeechRecognition' now correctly refers to the interface type, resolving the type error.
   const recognitionRef = useRef<SpeechRecognition | null>(null);
+  // Ref to hold the intended listening state to prevent race conditions with async browser APIs.
+  const intendedListeningRef = useRef(false);
 
   const stopListening = useCallback(() => {
     if (recognitionRef.current) {
+      intendedListeningRef.current = false;
       recognitionRef.current.stop();
     }
   }, []);
   
   const startListening = useCallback(() => {
-    if (isListening || !isSupported) return;
+    if (intendedListeningRef.current || !isSupported) return;
 
     const recognition = new SpeechRecognitionAPI();
+    recognitionRef.current = recognition;
+    intendedListeningRef.current = true;
+    
     recognition.lang = lang;
     recognition.continuous = true;
     recognition.interimResults = false;
@@ -87,54 +94,44 @@ export const useSpeechRecognition = ({ phrases, onMatch, lang }: SpeechRecogniti
     };
 
     recognition.onend = () => {
-      setIsListening(false);
-      // Automatically restart listening if it wasn't stopped manually
-      if (recognitionRef.current) {
-          recognition.start();
+      // If the stop was not intentional (i.e., user didn't click Stop), 
+      // restart the recognition service to ensure continuous listening.
+      if (intendedListeningRef.current) {
+        recognition.start();
+      } else {
+        setIsListening(false);
+        recognitionRef.current = null;
       }
     };
     
     recognition.onerror = (event: SpeechRecognitionError) => {
       console.error('Speech recognition error:', event.error);
-      // Don't set isListening to false here to allow automatic restart
-      if (event.error === 'no-speech' || event.error === 'network') {
-          // It can try to restart on its own
-      } else {
-          setIsListening(false);
+      // On a critical error like 'not-allowed', stop trying to listen.
+      if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
+        intendedListeningRef.current = false;
       }
     };
 
     recognition.onresult = (event: SpeechRecognitionEvent) => {
       const transcript = event.results[event.results.length - 1][0].transcript.trim().toLowerCase();
-      console.log('Transcript:', transcript);
       
       const matchedPhrase = phrases.find(phrase => transcript.includes(phrase.toLowerCase()));
 
       if (matchedPhrase) {
-        console.log('Match found!', matchedPhrase);
         onMatch(matchedPhrase);
       }
     };
 
-    recognitionRef.current = recognition;
     recognition.start();
-  }, [isListening, phrases, onMatch, lang]);
+  }, [phrases, onMatch, lang]);
   
-  const manualStop = useCallback(() => {
-    if (recognitionRef.current) {
-      // setting ref to null prevents onend from restarting
-      const rec = recognitionRef.current;
-      recognitionRef.current = null;
-      rec.stop();
-      setIsListening(false);
-    }
-  }, []);
-
   // Cleanup on unmount
   useEffect(() => {
     return () => {
+      intendedListeningRef.current = false;
       if (recognitionRef.current) {
         recognitionRef.current.stop();
+        recognitionRef.current = null;
       }
     };
   }, []);
@@ -142,7 +139,7 @@ export const useSpeechRecognition = ({ phrases, onMatch, lang }: SpeechRecogniti
   return {
     isListening,
     startListening,
-    stopListening: manualStop,
+    stopListening,
     isSupported,
   };
 };
